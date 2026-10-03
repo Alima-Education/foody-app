@@ -32,7 +32,7 @@ tailwind.config = {
   <div class="flex items-center justify-between px-4 pt-3 pb-2 max-w-2xl mx-auto">
     <div>
       <h1 class="font-serif text-xl text-chili leading-none">FOODY APP</h1>
-      <span class="text-[17px] text-inksoft">Lunch & dessert harian</span>
+      <span class="text-[11px] text-inksoft">Lunch & dessert harian</span>
     </div>
     <button onclick="openCart()" class="relative flex items-center gap-1.5 bg-surface text-ink border border-line text-sm font-semibold rounded-full px-4 py-2.5">
       Keranjang
@@ -55,7 +55,7 @@ tailwind.config = {
   <div class="bg-herb text-[#0d2420] rounded-2xl px-5 py-4 my-4 flex items-center justify-between gap-4">
     <div>
       <h3 class="font-serif text-base">Langganan mingguan</h3>
-      <p class="">Diskon 10% untuk semua menu lunch</p>
+      <p class="text-xs opacity-80 mt-0.5">Diskon 10% untuk semua menu lunch</p>
     </div>
     <button id="subToggle" onclick="toggleSub()" class="relative w-[50px] h-7 rounded-full bg-black/15 flex-none transition-colors">
       <span id="subDot" class="absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full transition-transform"></span>
@@ -84,6 +84,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/fireba
 import {
   getAuth, RecaptchaVerifier, signInWithPhoneNumber, onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { MENU, CATS, money } from '../constant/food.js';
 
 // GANTI dengan config project Firebase kamu
 const firebaseConfig = {
@@ -102,39 +103,17 @@ let currentUser = null;
 
 onAuthStateChanged(auth, (user) => { currentUser = user; });
 
-window._auth = {
-  isLoggedIn: () => !!currentUser,
-  getUser: () => currentUser,
-  async sendOtp(phoneNumber){
-    if(!window.recaptchaVerifier){
-      window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', { size: 'invisible' });
-    }
-    confirmationResult = await signInWithPhoneNumber(auth, phoneNumber, window.recaptchaVerifier);
-  },
-  async verifyOtp(code){
-    const result = await confirmationResult.confirm(code);
-    currentUser = result.user;
-    return currentUser;
-  }
-};
-</script>
-
-<script>
-const MENU = [
-  {id:1,cat:'lunch',name:'Chicken Katsu',price:32000,desc:'Ayam crispy, saus katsu'},
-  {id:2,cat:'lunch',name:'Nasi Goreng',price:16000,desc:'Bumbu rumahan, telur mata sapi'},
-  {id:3,cat:'lunch',name:'Mie Goreng',price:14000,desc:'Mie kenyal, sayur segar'},
-  {id:4,cat:'lunch',name:'Dimsum (6 pcs)',price:12000,desc:'Isi ayam, saus sambal'},
-  {id:5,cat:'lunch',name:'Ricebowl Ayam Teriyaki',price:27000,desc:'Nasi hangat, saus teriyaki'},
-  {id:6,cat:'lunch',name:'Ricebowl Ayam Geprek',price:27000,desc:'Sambal bawang pedas'},
-  {id:7,cat:'dessert',name:'Cupcake (3 pcs)',price:9000,desc:'Lembut, topping krim'},
-  {id:8,cat:'dessert',name:'Bolu Coklat (5 pcs)',price:10000,desc:'Coklat lumer di dalam'},
-  {id:9,cat:'drink',name:'Es Teh Manis/Tawar',price:5000,desc:'Segar, pilih manis atau tawar'},
-  {id:10,cat:'drink',name:'Es Jeruk',price:7000,desc:'Jeruk peras asli'},
-];
-const CATS = [['all','Semua'],['lunch','Lunch'],['dessert','Dessert'],['drink','Minuman']];
+/* ====== STATE HALAMAN (bukan import → boleh diubah-ubah) ====== */
 let cart = {}, activeCat = 'all', subscribed = false;
-const money = n => 'Rp' + n.toLocaleString('id-ID');
+let pendingPhone = '';
+let chosenAddress = '';
+let chosenKurir = null;
+
+const KURIR = [
+  {name:'Budi Santoso', kend:'Motor', plat:'B 3421 AXQ'},
+  {name:'Andi Firmansyah', kend:'Motor', plat:'B 1187 CVR'},
+  {name:'Sari Wulandari', kend:'Motor', plat:'B 5502 DZK'},
+];
 
 document.getElementById('tabs').innerHTML = CATS.map(([k,l]) =>
   `<button data-cat="${k}" onclick="setCat('${k}')"
@@ -232,19 +211,11 @@ function renderCart(){
   ` : '';
 }
 
-/* ====== LOGIN OTP ====== */
-let pendingPhone = '';
-
 function checkout(){
   const method = document.getElementById('payMethod').value;
   if(!method){ showToast('Pilih metode pembayaran dulu'); return; }
   window._payMethod = method;
-
-  if(window._auth.isLoggedIn()){
-    renderLocationStep();
-  } else {
-    renderLoginStep();
-  }
+  if(currentUser){ renderLocationStep(); } else { renderLoginStep(); }
 }
 
 function renderLoginStep(){
@@ -266,7 +237,10 @@ async function sendOtpStep(){
   pendingPhone = phone;
   try{
     document.getElementById('cartFoot').innerHTML = `<button disabled class="w-full bg-chili/50 text-white font-bold rounded-full py-3 text-sm">Mengirim kode...</button>`;
-    await window._auth.sendOtp(phone);
+    if(!window.recaptchaVerifier){
+      window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', { size: 'invisible' });
+    }
+    confirmationResult = await signInWithPhoneNumber(auth, phone, window.recaptchaVerifier);
     renderOtpInputStep();
   }catch(err){
     showToast('Gagal kirim OTP, cek nomor HP');
@@ -290,22 +264,14 @@ async function verifyOtpStep(){
   const code = document.getElementById('otpInput').value.trim();
   if(!code){ showToast('Isi kode OTP dulu'); return; }
   try{
-    await window._auth.verifyOtp(code);
+    const result = await confirmationResult.confirm(code);
+    currentUser = result.user;
     showToast('Berhasil masuk!');
     renderLocationStep();
   }catch(err){
     showToast('Kode OTP salah, coba lagi');
   }
 }
-
-/* ====== LOKASI & PENGANTAR ====== */
-const KURIR = [
-  {name:'Budi Santoso', kend:'Motor', plat:'B 3421 AXQ'},
-  {name:'Andi Firmansyah', kend:'Motor', plat:'B 1187 CVR'},
-  {name:'Sari Wulandari', kend:'Motor', plat:'B 5502 DZK'},
-];
-let chosenAddress = '';
-let chosenKurir = null;
 
 function useCurrentLocation(){
   if(!navigator.geolocation){ showToast('Perangkat tidak mendukung lokasi'); return; }
@@ -361,6 +327,13 @@ function showToast(msg){
   t.classList.remove('opacity-0','translate-y-4');
   clearTimeout(window._tt); window._tt = setTimeout(()=>t.classList.add('opacity-0','translate-y-4'),2200);
 }
+
+/* ====== Ekspos semua fungsi yang dipanggil lewat onclick="" ke window ====== */
+Object.assign(window, {
+  setCat, toggleSub, render, addItem, changeQty, checkout,
+  renderLoginStep, sendOtpStep, verifyOtpStep, useCurrentLocation,
+  renderCart, confirmOrder, openCart, closeCart
+});
 
 render(); renderCart();
 </script>
