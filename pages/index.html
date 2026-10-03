@@ -218,6 +218,17 @@ function renderLoginStep(){
     <button onclick="sendOtpStep()" class="w-full bg-chili text-white font-bold rounded-full py-3 text-sm">Kirim Kode OTP</button>`;
 }
 
+// verifier yang sudah dipakai/gagal tidak bisa dipakai ulang, dan clear() tidak
+// mengosongkan container, jadi container diganti dengan elemen baru
+function resetRecaptcha(){
+  try{ window.recaptchaVerifier?.clear(); }catch(_){}
+  window.recaptchaVerifier = null;
+  const old = document.getElementById('recaptcha-container');
+  const fresh = document.createElement('div');
+  fresh.id = 'recaptcha-container';
+  old.replaceWith(fresh);
+}
+
 async function sendOtpStep(){
   let phone = document.getElementById('phoneInput').value.trim();
   if(!phone){ showToast('Isi nomor HP dulu'); return; }
@@ -225,13 +236,22 @@ async function sendOtpStep(){
   pendingPhone = phone;
   try{
     document.getElementById('cartFoot').innerHTML = `<button disabled class="w-full bg-chili/50 text-white font-bold rounded-full py-3 text-sm">Mengirim kode...</button>`;
-    if(!window.recaptchaVerifier){
-      window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', { size: 'invisible' });
-    }
+    resetRecaptcha();
+    window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', { size: 'invisible' });
     confirmationResult = await signInWithPhoneNumber(auth, phone, window.recaptchaVerifier);
     renderOtpInputStep();
   }catch(err){
-    showToast('Gagal kirim OTP, cek nomor HP');
+    console.error('sendOtp failed:', err.code, err.message);
+    resetRecaptcha();
+    const msgs = {
+      'auth/invalid-phone-number': 'Nomor HP tidak valid',
+      'auth/too-many-requests': 'Terlalu banyak percobaan, coba lagi nanti',
+      'auth/quota-exceeded': 'Kuota SMS habis, coba lagi nanti',
+      'auth/captcha-check-failed': 'Verifikasi reCAPTCHA gagal, muat ulang halaman',
+      'auth/operation-not-allowed': 'Login nomor HP belum diaktifkan di Firebase',
+      'auth/billing-not-enabled': 'Firebase perlu paket Blaze untuk kirim SMS',
+    };
+    showToast(msgs[err.code] || 'Gagal kirim OTP (' + (err.code || 'unknown') + ')');
     renderLoginStep();
   }
 }
