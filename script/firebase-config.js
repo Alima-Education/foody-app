@@ -10,7 +10,7 @@ import {
 	SECRET_MESSEGINGSENDERID,
 	SECRET_APPID,
 	SECRET_MEASUREMENTID,
-} from '../secret';
+} from '../secret.js';
 
 const firebaseConfig = {
 	apiKey: SECRET_APIKEY,
