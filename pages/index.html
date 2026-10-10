@@ -233,9 +233,8 @@ async function sendOtpStep(){
   pendingPhone = phone;
   try{
     document.getElementById('cartFoot').innerHTML = `<button disabled class="w-full bg-chili/50 text-white font-bold rounded-full py-3 text-sm">Mengirim kode...</button>`;
-    if(!window.recaptchaVerifier){
-      window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', { size: 'invisible' });
-    }
+    resetRecaptcha();
+    window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', { size: 'invisible' });
     confirmationResult = await signInWithPhoneNumber(auth, phone, window.recaptchaVerifier);
     renderOtpInputStep();
   }catch(err){
