@@ -98,9 +98,9 @@ let chosenAddress = '';
 let chosenKurir = null;
 
 const KURIR = [
-  {name:'Budi Santoso', kend:'Motor', plat:'B 3421 AXQ'},
-  {name:'Andi Firmansyah', kend:'Motor', plat:'B 1187 CVR'},
-  {name:'Sari Wulandari', kend:'Motor', plat:'B 5502 DZK'},
+  {name:'Budi Santoso', kend:'Harley Davidson', plat:'B 3421 AXQ'},
+  {name:'Andi Firmansyah', kend:'Mclaren senna', plat:'B 87 CVR'},
+  {name:'Sari Wulandari', kend:'Bmw m4', plat:'B 550 DZK'},
 ];
 
 document.getElementById('tabs').innerHTML = CATS.map(([k,l]) =>
@@ -157,9 +157,9 @@ function render(){
   document.getElementById('menuArea').innerHTML = html || `<p class="text-center text-inksoft py-10 text-sm">Menu tidak ditemukan.</p>`;
 }
 
+function updateBadge(){ document.getElementById('cartCount').textContent = Object.values(cart).reduce((a,b)=>a+b,0); }
 function addItem(id){ cart[id]=1; render(); renderCart(); updateBadge(); showToast('Ditambahkan ke keranjang'); }
 function changeQty(id,d){ cart[id]=(cart[id]||0)+d; if(cart[id]<=0) delete cart[id]; render(); renderCart(); updateBadge(); }
-function updateBadge(){ document.getElementById('cartCount').textContent = Object.values(cart).reduce((a,b)=>a+b,0); }
 
 function cartTotal(){
   let total=0;
@@ -218,10 +218,18 @@ function renderLoginStep(){
     <button onclick="sendOtpStep()" class="w-full bg-chili text-white font-bold rounded-full py-3 text-sm">Kirim Kode OTP</button>`;
 }
 
+function normalizePhone(input){
+  const digits = input.replace(/[^\d+]/g, '');
+  if(digits.startsWith('+62')) return digits;
+  if(digits.startsWith('62')) return '+' + digits;
+  if(digits.startsWith('0')) return '+62' + digits.slice(1);
+  return '+62' + digits;
+}
+
 async function sendOtpStep(){
   let phone = document.getElementById('phoneInput').value.trim();
   if(!phone){ showToast('Isi nomor HP dulu'); return; }
-  phone = phone.startsWith('0') ? '+62' + phone.slice(1) : phone;
+  phone = normalizePhone(phone);
   pendingPhone = phone;
   try{
     document.getElementById('cartFoot').innerHTML = `<button disabled class="w-full bg-chili/50 text-white font-bold rounded-full py-3 text-sm">Mengirim kode...</button>`;
@@ -231,7 +239,8 @@ async function sendOtpStep(){
     confirmationResult = await signInWithPhoneNumber(auth, phone, window.recaptchaVerifier);
     renderOtpInputStep();
   }catch(err){
-    showToast('Gagal kirim OTP, cek nomor HP');
+    console.error('KODE ERROR:', err.code, err.message);
+    showToast('Gagal kirim OTP: ' + err.code);
     renderLoginStep();
   }
 }
@@ -305,9 +314,13 @@ function confirmOrder(){
       <p class="text-sm text-inksoft mt-2">Dikirim ke: ${chosenAddress}</p>
       <p class="text-sm text-inksoft mt-1">Kurir: ${chosenKurir.name} (${chosenKurir.kend})</p>
     </div>`;
-  document.getElementById('cartFoot').innerHTML = `<button onclick="closeCart(); cart={}; render(); renderCart(); updateBadge();" class="w-full bg-herb text-[#0d2420] font-bold rounded-full py-3 text-sm">Selesai</button>`;
+  document.getElementById('cartFoot').innerHTML = `<button onclick="finishOrder()" class="w-full bg-herb text-[#0d2420] font-bold rounded-full py-3 text-sm">Selesai</button>`;
 }
-
+function finishOrder(){
+  closeCart();
+  cart = {};
+  render(); renderCart(); updateBadge();
+}
 function openCart(){ renderCart(); document.getElementById('drawer').classList.remove('translate-x-full'); document.getElementById('overlay').classList.remove('opacity-0','pointer-events-none'); }
 function closeCart(){ document.getElementById('drawer').classList.add('translate-x-full'); document.getElementById('overlay').classList.add('opacity-0','pointer-events-none'); }
 function showToast(msg){
@@ -320,7 +333,7 @@ function showToast(msg){
 Object.assign(window, {
   setCat, toggleSub, render, addItem, changeQty, checkout,
   renderLoginStep, sendOtpStep, verifyOtpStep, useCurrentLocation,
-  renderCart, confirmOrder, openCart, closeCart
+  renderCart, confirmOrder, finishOrder, openCart, closeCart
 });
 
 render(); renderCart();
