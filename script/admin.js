@@ -323,8 +323,8 @@ function orderCard(o){
 
     <div class="mt-3">
       <div class="font-semibold text-sm">${esc(o.name || '-')}</div>
-      <div class="text-xs text-inksoft break-words">${esc(o.phone || '-')} · ${esc(o.email || '-')}</div>
-      <div class="text-[11px] text-inksoft/70">Email dari pelanggan, belum diverifikasi server.</div>
+            <div class="text-xs text-inksoft break-words">${esc(o.email || '-')}</div>
+      <div class="text-[11px] text-herb">Email terverifikasi (login tautan email)</div>
     </div>
 
     <div class="mt-3 border-t border-line pt-2">

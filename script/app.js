@@ -1,27 +1,27 @@
 import { auth, db } from './firebase-config.js';
-import { RecaptchaVerifier, signInWithPhoneNumber, onAuthStateChanged, signOut }
+import { sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink, onAuthStateChanged, signOut }
   from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import { collection, doc, getDoc, getDocFromServer, onSnapshot, query, where, serverTimestamp, writeBatch }
   from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 import { MENU, CATS, money } from '../constant/food.js';
 import { unitPrice, calcOrder, ONGKIR } from '../constant/pricing.js';
-import { requestOtp, verifyOtp, otpErrorMessage } from './otp-api.js';
 
 /* ====== UTIL ====== */
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const drawerOpen = () => !$('drawer').classList.contains('translate-x-full');
 
 /* ====== STATE (di dalam modul, tidak diekspos ke window) ====== */
 let currentUser = null;
-let confirmationResult = null;
 let cart = {};                       // { idMenu: jumlah }
 let activeCat = 'all';
 let subscribed = false;              // hanya dari Firestore (/subscribers/uid), diatur admin
 let payMethod = '';
-let pendingPhone = '';
-let customer = { name: '', email: '', emailVerified: false };
-let otpEmail = '';
-let otpTimer = null;
+let customer = { name: '' };
+let loginEmail = '';                 // email tujuan tautan masuk
+let awaitingLink = false;            // layar "cek email" sedang tampil
+let linkTimer = null;
 let isSubmitting = false;
 let orderAttempt = null;             // { sig, ref, code }
 let historyUnsub = null;
@@ -35,6 +35,14 @@ onAuthStateChanged(auth, async (user) => {
   updateAccountBar();
   authReadyResolve();
   await refreshSubscription();
+
+  // tautan diklik di tab lain → tab ini yang sedang menunggu langsung lanjut
+  if(user && awaitingLink && drawerOpen()){
+    awaitingLink = false;
+    clearInterval(linkTimer);
+    showToast('Berhasil masuk!', 'success');
+    renderCustomerStep();
+  }
 });
 
 async function refreshSubscription(){
@@ -52,9 +60,10 @@ async function refreshSubscription(){
 }
 
 /* ====== PENYIMPANAN DATA PRIBADI ======
-   Tidak ada lagi data pribadi di localStorage. Profil hanya di sessionStorage
-   (hilang saat tab ditutup) dan dihapus saat keluar. */
+   Profil (nama) hanya di sessionStorage. Email tujuan tautan disimpan sementara di
+   localStorage (supaya tab baru bisa menyelesaikan login) dan dihapus setelah masuk/keluar. */
 const PROFILE_KEY = 'foody_profile';
+const PENDING_EMAIL_KEY = 'foody_login_email';
 function getProfile(){
   try{
     const p = JSON.parse(sessionStorage.getItem(PROFILE_KEY)) || {};
@@ -71,9 +80,12 @@ function clearStoredData(){
       Object.keys(st).filter(k => k.startsWith('foody_')).forEach(k => st.removeItem(k)));
   }catch(e){ console.error('Gagal hapus data lokal:', e); }
 }
-function purgeLegacyLocalData(){ // sisa versi lama yang menyimpan profil/riwayat di localStorage
-  try{ Object.keys(localStorage).filter(k => k.startsWith('foody_')).forEach(k => localStorage.removeItem(k)); }
-  catch(e){}
+function purgeLegacyLocalData(){ // sisa versi lama (profil/riwayat per-uid di localStorage)
+  try{
+    Object.keys(localStorage)
+      .filter(k => k.startsWith('foody_profile_') || k.startsWith('foody_orders_'))
+      .forEach(k => localStorage.removeItem(k));
+  }catch(e){}
 }
 
 /* ====== LOGOUT OTOMATIS SAAT TIDAK AKTIF (perangkat bersama) ====== */
@@ -92,8 +104,8 @@ const TOAST_STYLE = {
   info:    { cls: 'bg-surface text-ink border-white/30', icon: 'i' },
 };
 function guessToastType(msg){
-  if(/(berhasil|terverifikasi|ditambahkan|kode baru)/i.test(msg)) return 'success';
-  if(/(gagal|salah|kedaluwarsa|tidak |terlalu|tunggu|habis|ditolak|kesalahan|belum benar|harus|ditolak|^isi |^pilih |^lengkapi |berakhir)/i.test(msg)) return 'error';
+  if(/(berhasil|terverifikasi|ditambahkan|dikirim)/i.test(msg)) return 'success';
+  if(/(gagal|salah|kedaluwarsa|tidak |terlalu|tunggu|habis|ditolak|kesalahan|belum benar|harus|^isi |^pilih |^lengkapi |berakhir)/i.test(msg)) return 'error';
   return 'info';
 }
 function showToast(msg, type){
@@ -238,158 +250,74 @@ function checkout(){
   if(currentUser) renderCustomerStep(); else renderLoginStep();
 }
 
-/* ====== LOGIN OTP HP ====== */
+/* ====== LOGIN EMAIL (tautan masuk bawaan Firebase) ====== */
+const actionCodeSettings = () => ({ url: location.origin + location.pathname, handleCodeInApp: true });
+
+function linkErrorMessage(err){
+  if(err.code === 'auth/unauthorized-continue-uri') return 'Domain halaman ini belum diizinkan di Firebase (Authorized domains).';
+  if(err.code === 'auth/operation-not-allowed') return 'Login tautan email belum diaktifkan di Firebase.';
+  if(err.code === 'auth/invalid-email') return 'Format email belum benar.';
+  if(err.code === 'auth/too-many-requests') return 'Terlalu banyak permintaan, coba lagi beberapa menit lagi.';
+  return 'Gagal kirim tautan, coba lagi.';
+}
+
 function renderLoginStep(){
+  awaitingLink = false;
+  clearInterval(linkTimer);
   $('drawerTitle').textContent = 'Masuk untuk lanjut';
   $('cartBody').innerHTML = `
-    <p class="text-sm text-inksoft mb-4">Masukkan nomor HP kamu, kami akan kirim kode OTP untuk verifikasi sebelum pesanan diproses.</p>
-    <label class="text-sm font-semibold" for="phoneInput">Nomor HP</label>
-    <input id="phoneInput" type="tel" placeholder="08123456789" maxlength="20"
+    <p class="text-sm text-inksoft mb-4">Masukkan emailmu. Kami kirim tautan masuk ke emailmu, tanpa password. Klik tautan itu untuk masuk.</p>
+    <label class="text-sm font-semibold" for="loginEmail">Email</label>
+    <input id="loginEmail" type="email" autocomplete="email" placeholder="nama@email.com" maxlength="120" value="${esc(loginEmail)}"
       class="w-full border border-line bg-card text-ink placeholder:text-inksoft/70 rounded-lg px-3 py-2.5 mt-1.5 text-sm">
-    <p class="text-xs text-inksoft mt-1.5">Format otomatis dikonversi ke +62.</p>`;
-  $('cartFoot').innerHTML = `<button data-action="sendOtpStep" class="w-full bg-chili text-white font-bold rounded-full py-3 text-sm">Kirim Kode OTP</button>`;
+    <p class="text-xs text-inksoft mt-1.5">Email ini menjadi identitas akunmu dan dipakai sebagai kontak pesanan.</p>`;
+  $('cartFoot').innerHTML = `<button data-action="sendLoginLink" class="w-full bg-chili text-white font-bold rounded-full py-3 text-sm">Kirim Tautan Masuk</button>`;
 }
 
-function normalizePhone(input){
-  const digits = input.replace(/[^\d+]/g, '');
-  if(digits.startsWith('+62')) return digits;
-  if(digits.startsWith('62')) return '+' + digits;
-  if(digits.startsWith('0')) return '+62' + digits.slice(1);
-  return '+62' + digits;
-}
-function resetRecaptcha(){
-  if(window.recaptchaVerifier){
-    try{ window.recaptchaVerifier.clear(); }catch(e){}
-    window.recaptchaVerifier = null;
-  }
-}
-
-async function sendOtpStep(){
-  const raw = $('phoneInput').value.trim();
-  if(!raw){ showToast('Isi nomor HP dulu'); return; }
-  const phone = normalizePhone(raw);
-  pendingPhone = phone;
+async function sendLoginLink(){
+  const email = $('loginEmail').value.trim().toLowerCase();
+  if(email.length > 120 || !EMAIL_RE.test(email)){ showToast('Format email belum benar'); return; }
+  loginEmail = email;
+  $('cartFoot').innerHTML = `<button disabled class="w-full bg-chili/50 text-white font-bold rounded-full py-3 text-sm">Mengirim tautan...</button>`;
   try{
-    $('cartFoot').innerHTML = `<button disabled class="w-full bg-chili/50 text-white font-bold rounded-full py-3 text-sm">Mengirim kode...</button>`;
-    resetRecaptcha();
-    window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', { size: 'invisible' });
-    confirmationResult = await signInWithPhoneNumber(auth, phone, window.recaptchaVerifier);
-    renderOtpInputStep();
+    await sendSignInLinkToEmail(auth, email, actionCodeSettings());
+    try{ localStorage.setItem(PENDING_EMAIL_KEY, email); }catch(e){}
+    renderCheckEmailStep(email, 60);
   }catch(err){
-    console.error('KODE ERROR:', err.code, err.message);
-    showToast('Gagal kirim OTP: ' + err.code);
+    console.error('Gagal kirim tautan:', err.code, err.message);
+    showToast(linkErrorMessage(err), 'error');
     renderLoginStep();
   }
 }
 
-function renderOtpInputStep(){
-  $('drawerTitle').textContent = 'Masukkan kode OTP';
+function renderCheckEmailStep(email, seconds){
+  awaitingLink = true;
+  $('drawerTitle').textContent = 'Cek emailmu';
   $('cartBody').innerHTML = `
-    <p class="text-sm text-inksoft mb-4">Kode OTP sudah dikirim ke <span class="text-ink font-semibold">${esc(pendingPhone)}</span>.</p>
-    <label class="text-sm font-semibold" for="otpInput">Kode OTP</label>
-    <input id="otpInput" type="text" inputmode="numeric" placeholder="123456" maxlength="6"
-      class="w-full border border-line bg-card text-ink placeholder:text-inksoft/70 rounded-lg px-3 py-2.5 mt-1.5 text-sm tracking-widest">
-    <button data-action="renderLoginStep" class="mt-2 text-xs font-semibold text-herb underline">Ganti nomor HP</button>`;
-  $('cartFoot').innerHTML = `<button data-action="verifyOtpStep" class="w-full bg-chili text-white font-bold rounded-full py-3 text-sm">Verifikasi & Lanjutkan</button>`;
-}
-
-async function verifyOtpStep(){
-  const code = $('otpInput').value.trim();
-  if(!code){ showToast('Isi kode OTP dulu'); return; }
-  try{
-    const result = await confirmationResult.confirm(code);
-    currentUser = result.user;
-    showToast('Berhasil masuk!');
-    renderCustomerStep();
-  }catch(err){
-    showToast('Kode OTP salah, coba lagi');
-  }
-}
-
-/* ====== DATA PEMESAN & VERIFIKASI EMAIL ====== */
-function renderCustomerStep(){
-  const saved = getProfile();
-  $('drawerTitle').textContent = 'Data Pemesan';
-  $('cartBody').innerHTML = `
-    <p class="text-sm text-inksoft mb-4">Isi data kamu dulu sebelum lanjut ke pengantaran.</p>
-    <div class="mb-4">
-      <label class="text-sm font-semibold" for="nameInput">Nama lengkap</label>
-      <input id="nameInput" type="text" autocomplete="name" placeholder="Nama kamu" maxlength="60" value="${esc(saved.name || '')}"
-        class="w-full border border-line bg-card text-ink placeholder:text-inksoft/70 rounded-lg px-3 py-2.5 mt-1.5 text-sm">
+    <div class="text-center py-6">
+      <div class="mx-auto w-16 h-16 rounded-full bg-surface border border-line flex items-center justify-center text-2xl">✉</div>
+      <h4 class="font-serif text-xl mt-4">Tautan masuk terkirim</h4>
+      <p class="text-sm text-inksoft mt-2">Kami kirim tautan ke <span class="text-ink font-semibold">${esc(email)}</span>. Buka emailmu (cek juga folder spam), lalu klik tautannya. Halaman ini lanjut otomatis setelah kamu masuk.</p>
     </div>
-    <div>
-      <label class="text-sm font-semibold" for="emailInput">Email</label>
-      <input id="emailInput" type="email" autocomplete="email" placeholder="nama@email.com" maxlength="120" value="${esc(saved.email || '')}"
-        class="w-full border border-line bg-card text-ink placeholder:text-inksoft/70 rounded-lg px-3 py-2.5 mt-1.5 text-sm">
-      <p class="text-xs text-inksoft mt-1.5">Dipakai sebagai data kontak pesananmu.</p>
-    </div>`;
-  $('cartFoot').innerHTML = `
-    <div class="flex gap-3">
-      <button data-action="renderCart" class="flex-1 border border-line rounded-full py-3 text-sm font-semibold">Kembali</button>
-      <button data-action="submitCustomer" class="flex-1 bg-chili text-white font-bold rounded-full py-3 text-sm">Lanjut</button>
-    </div>`;
+    <button data-action="renderLoginStep" class="text-xs font-semibold text-herb underline">Ganti email</button>`;
+  $('cartFoot').innerHTML = `<button id="linkResendBtn" data-action="resendLoginLink" class="w-full border border-line rounded-full py-3 text-sm font-semibold">Kirim ulang</button>`;
+  startLinkCountdown(seconds);
 }
 
-async function submitCustomer(){
-  const name = $('nameInput').value.trim();
-  const email = $('emailInput').value.trim();
-  if(name.length < 2 || name.length > 60){ showToast('Isi nama lengkap dulu (2-60 karakter)'); return; }
-  if(email.length > 120 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ showToast('Format email belum benar'); return; }
-
-  const saved = getProfile();
-  customer = { name, email, emailVerified: false };
-  saveProfile({ ...saved, name, email });
-
-  // email yang sama sudah diverifikasi di tab ini → lewati OTP
-  if(saved.verifiedEmail && saved.verifiedEmail.toLowerCase() === email.toLowerCase()){
-    customer.emailVerified = true;
-    renderLocationStep();
-    return;
-  }
-  await sendEmailOtp(email);
-}
-
-async function sendEmailOtp(email){
-  $('cartFoot').innerHTML = `<button disabled class="w-full bg-chili/50 text-white font-bold rounded-full py-3 text-sm">Mengirim kode...</button>`;
-  const r = await requestOtp(email);
-  if(r.code === 'COOLDOWN'){
-    showToast(otpErrorMessage(r));
-    renderEmailOtpStep(email, r.retryAfterSeconds);
-    return;
-  }
-  if(!r.ok){ showToast(otpErrorMessage(r)); renderCustomerStep(); return; }
-  renderEmailOtpStep(email, 60);
-}
-
-function renderEmailOtpStep(email, seconds){
-  otpEmail = email;
-  $('drawerTitle').textContent = 'Verifikasi Email';
-  $('cartBody').innerHTML = `
-    <p class="text-sm text-inksoft mb-4">Kami kirim kode 6 digit ke <span class="text-ink font-semibold">${esc(email)}</span>. Cek inbox dan folder spam. Kode berlaku 5 menit.</p>
-    <label class="text-sm font-semibold" for="emailCodeInput">Kode verifikasi</label>
-    <input id="emailCodeInput" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="123456"
-      class="w-full border border-line bg-card text-ink placeholder:text-inksoft/70 rounded-lg px-3 py-2.5 mt-1.5 text-sm tracking-widest">
-    <button data-action="renderCustomerStep" class="mt-2 text-xs font-semibold text-herb underline">Ganti email</button>`;
-  $('cartFoot').innerHTML = `
-    <button id="emailVerifyBtn" data-action="verifyEmailStep" class="w-full bg-chili text-white font-bold rounded-full py-3 text-sm mb-2">Verifikasi & Lanjutkan</button>
-    <button id="emailResendBtn" data-action="resendEmailOtp" class="w-full border border-line rounded-full py-3 text-sm font-semibold">Kirim ulang</button>`;
-  startResendCountdown(seconds);
-}
-
-function startResendCountdown(seconds){
-  clearInterval(otpTimer);
-  const btn = $('emailResendBtn');
+function startLinkCountdown(seconds){
+  clearInterval(linkTimer);
+  const btn = $('linkResendBtn');
   if(!btn) return;
   let left = seconds;
   btn.disabled = true;
   btn.classList.add('opacity-50');
   btn.textContent = `Kirim ulang (${left})`;
-  otpTimer = setInterval(() => {
-    const b = $('emailResendBtn');
-    if(!b){ clearInterval(otpTimer); return; }
+  linkTimer = setInterval(() => {
+    const b = $('linkResendBtn');
+    if(!b){ clearInterval(linkTimer); return; } // layar sudah berganti
     left -= 1;
     if(left <= 0){
-      clearInterval(otpTimer);
+      clearInterval(linkTimer);
       b.disabled = false;
       b.classList.remove('opacity-50');
       b.textContent = 'Kirim ulang';
@@ -399,35 +327,84 @@ function startResendCountdown(seconds){
   }, 1000);
 }
 
-async function resendEmailOtp(){
-  const btn = $('emailResendBtn');
+async function resendLoginLink(){
+  const btn = $('linkResendBtn');
   if(btn) btn.disabled = true;
-  const r = await requestOtp(otpEmail);
-  if(r.code === 'COOLDOWN'){ showToast(otpErrorMessage(r)); startResendCountdown(r.retryAfterSeconds); return; }
-  if(!r.ok){ showToast(otpErrorMessage(r)); if(btn) btn.disabled = false; return; }
-  const input = $('emailCodeInput');
-  if(input) input.value = '';
-  showToast('Kode baru dikirim');
-  startResendCountdown(60);
+  try{
+    await sendSignInLinkToEmail(auth, loginEmail, actionCodeSettings());
+    showToast('Tautan baru dikirim', 'success');
+    startLinkCountdown(60);
+  }catch(err){
+    console.error('Gagal kirim ulang tautan:', err.code, err.message);
+    showToast(linkErrorMessage(err), 'error');
+    if(btn) btn.disabled = false;
+  }
 }
 
-async function verifyEmailStep(){
-  const code = $('emailCodeInput').value.trim();
-  if(!/^\d{6}$/.test(code)){ showToast('Kode harus 6 digit'); return; }
-  const btn = $('emailVerifyBtn');
-  if(btn) btn.disabled = true;
-
-  const r = await verifyOtp(otpEmail, code);
-  if(!r.ok){
-    showToast(otpErrorMessage(r));
-    const b = $('emailVerifyBtn');
-    if(b) b.disabled = false;
-    return;
+// dipanggil saat halaman dibuka lewat tautan dari email
+async function completeEmailLinkSignIn(){
+  if(!isSignInWithEmailLink(auth, location.href)) return;
+  let email = '';
+  try{ email = localStorage.getItem(PENDING_EMAIL_KEY) || ''; }catch(e){}
+  if(!email){ // dibuka di browser/perangkat lain
+    email = (window.prompt('Masukkan email yang kamu pakai untuk meminta tautan masuk:') || '').trim().toLowerCase();
   }
-  clearInterval(otpTimer);
-  customer.emailVerified = true;
-  saveProfile({ ...getProfile(), name: customer.name, email: customer.email, verifiedEmail: otpEmail });
-  showToast('Email terverifikasi');
+  const cleanUrl = () => history.replaceState(null, '', location.pathname);
+  if(!email){ cleanUrl(); return; }
+  try{
+    await signInWithEmailLink(auth, email, location.href);
+    try{ localStorage.removeItem(PENDING_EMAIL_KEY); }catch(e){}
+    cleanUrl();
+    showLinkSignedIn();
+  }catch(err){
+    console.error('Tautan masuk gagal:', err.code, err.message);
+    cleanUrl();
+    showToast('Tautan tidak valid atau sudah kedaluwarsa. Minta tautan baru.', 'error');
+  }
+}
+
+function showLinkSignedIn(){
+  $('drawerTitle').textContent = 'Berhasil masuk';
+  $('cartBody').innerHTML = `
+    <div class="text-center py-10">
+      <div class="mx-auto w-16 h-16 rounded-full bg-herb text-[#0d2420] flex items-center justify-center text-3xl font-bold">✓</div>
+      <h4 class="font-serif text-xl mt-4">Kamu sudah masuk</h4>
+      <p class="text-sm text-inksoft mt-2">Kalau tadi kamu sedang memesan di tab lain, tab itu akan lanjut otomatis dan tab ini boleh ditutup.</p>
+    </div>`;
+  $('cartFoot').innerHTML = `<button data-action="closeCart" class="w-full bg-herb text-[#0d2420] font-bold rounded-full py-3 text-sm">Mulai memesan di sini</button>`;
+  $('drawer').classList.remove('translate-x-full');
+  $('overlay').classList.remove('opacity-0', 'pointer-events-none');
+}
+
+/* ====== DATA PEMESAN ====== */
+function renderCustomerStep(){
+  if(!currentUser){ renderLoginStep(); return; }
+  const saved = getProfile();
+  $('drawerTitle').textContent = 'Data Pemesan';
+  $('cartBody').innerHTML = `
+    <p class="text-sm text-inksoft mb-4">Isi namamu sebelum lanjut ke pengantaran.</p>
+    <div class="mb-4">
+      <label class="text-sm font-semibold" for="nameInput">Nama lengkap</label>
+      <input id="nameInput" type="text" autocomplete="name" placeholder="Nama kamu" maxlength="60" value="${esc(saved.name || '')}"
+        class="w-full border border-line bg-card text-ink placeholder:text-inksoft/70 rounded-lg px-3 py-2.5 mt-1.5 text-sm">
+    </div>
+    <div>
+      <div class="text-sm font-semibold">Email</div>
+      <div class="mt-1.5 rounded-lg border border-line bg-surface px-3 py-2.5 text-sm text-inksoft break-words">${esc(currentUser.email)}</div>
+      <p class="text-xs text-inksoft mt-1.5">Email akunmu, sudah terverifikasi lewat tautan masuk.</p>
+    </div>`;
+  $('cartFoot').innerHTML = `
+    <div class="flex gap-3">
+      <button data-action="renderCart" class="flex-1 border border-line rounded-full py-3 text-sm font-semibold">Kembali</button>
+      <button data-action="submitCustomer" class="flex-1 bg-chili text-white font-bold rounded-full py-3 text-sm">Lanjut</button>
+    </div>`;
+}
+
+function submitCustomer(){
+  const name = $('nameInput').value.trim();
+  if(name.length < 2 || name.length > 60){ showToast('Isi nama lengkap dulu (2-60 karakter)'); return; }
+  customer = { name };
+  saveProfile({ name });
   renderLocationStep();
 }
 
@@ -490,16 +467,16 @@ async function confirmOrder(){
 
   const addr = ($('addrInput') ? $('addrInput').value : '').trim();
   if(addr.length < 5){ showToast('Isi alamat pengantaran dulu (minimal 5 karakter)'); return; }
-  if(!currentUser || !currentUser.phoneNumber){ showToast('Sesi login habis, masuk lagi ya'); renderLoginStep(); return; }
-  if(!customer.name || !customer.email || !customer.emailVerified){
-    showToast('Lengkapi data pemesan dan verifikasi email dulu'); renderCustomerStep(); return;
+  if(!currentUser || !currentUser.email || !currentUser.emailVerified){
+    showToast('Sesi login habis, masuk lagi ya'); renderLoginStep(); return;
   }
+  if(!customer.name){ showToast('Lengkapi data pemesan dulu'); renderCustomerStep(); return; }
   const items = { ...cart };
   const calc = calcOrder(items, subscribed);
   if(!calc.valid){ showToast('Keranjang tidak valid, cek jumlah pesanan'); renderCart(); return; }
 
   // ID dibuat sekali per isi pesanan → menekan ulang tidak membuat pesanan baru
-  const sig = JSON.stringify([items, addr, payMethod, customer.email, subscribed]);
+  const sig = JSON.stringify([items, addr, payMethod, currentUser.email, subscribed]);
   if(!orderAttempt || orderAttempt.sig !== sig){
     const newRef = doc(collection(db, 'orders'));
     orderAttempt = { sig, ref: newRef, code: 'ORD-' + newRef.id.slice(0, 8).toUpperCase() };
@@ -511,8 +488,7 @@ async function confirmOrder(){
     customerId: currentUser.uid,
     createdAt: serverTimestamp(),
     name: customer.name,
-    email: customer.email,
-    phone: currentUser.phoneNumber,
+    email: currentUser.email,          // dari akun, dipaksa sama oleh Rules
     items,
     payment: payMethod,
     address: addr,
@@ -632,6 +608,7 @@ function renderHistoryList(orders, note){
 
 async function openHistory(){
   stopHistoryListener();
+  awaitingLink = false;
   $('drawerTitle').textContent = 'Riwayat Pesanan';
   $('cartBody').innerHTML = `<div class="text-center text-inksoft text-sm py-16">Memuat riwayat...</div>`;
   $('cartFoot').innerHTML = `<button data-action="closeCart" class="w-full border border-line rounded-full py-3 text-sm font-semibold">Tutup</button>`;
@@ -639,7 +616,7 @@ async function openHistory(){
   $('overlay').classList.remove('opacity-0', 'pointer-events-none');
 
   await authReady;
-  if($('drawer').classList.contains('translate-x-full')) return;
+  if(!drawerOpen()) return;
 
   if(!currentUser){
     $('cartBody').innerHTML = `<div class="text-center text-inksoft text-sm py-16">Masuk dulu lewat tombol "Bayar Sekarang" untuk melihat riwayat pesananmu.</div>`;
@@ -660,15 +637,17 @@ async function openHistory(){
 }
 
 /* ====== AKUN & LOGOUT ====== */
-function maskPhone(p){
-  const d = String(p || '').replace(/[^\d+]/g, '');
-  return d.length > 7 ? d.slice(0, 5) + '••••' + d.slice(-3) : d;
+function maskEmail(e){
+  const [u, d] = String(e || '').split('@');
+  if(!d) return String(e || '');
+  return (u.length > 2 ? u.slice(0, 2) : u.slice(0, 1)) + '•••@' + d;
 }
+
 function updateAccountBar(){
   const bar = $('accountBar');
   if(!bar) return;
   if(currentUser){
-    $('accountText').textContent = 'Masuk sebagai ' + (currentUser.phoneNumber ? maskPhone(currentUser.phoneNumber) : 'akun');
+    $('accountText').textContent = 'Masuk sebagai ' + (currentUser.email ? maskEmail(currentUser.email) : 'akun');
     bar.classList.remove('hidden');
   }else{
     bar.classList.add('hidden');
@@ -678,7 +657,8 @@ function updateAccountBar(){
 async function performLogout(message){
   closeCart();
   stopHistoryListener();
-  clearInterval(otpTimer);
+  clearInterval(linkTimer);
+  awaitingLink = false;
   try{
     await signOut(auth);
   }catch(err){
@@ -690,11 +670,9 @@ async function performLogout(message){
   subscribed = false;
   clearStoredData();
   cart = {};
-  customer = { name: '', email: '', emailVerified: false };
-  pendingPhone = ''; otpEmail = ''; payMethod = '';
-  confirmationResult = null;
+  customer = { name: '' };
+  loginEmail = ''; payMethod = '';
   orderAttempt = null;
-  resetRecaptcha();
   render(); renderCart(); updateBadge(); updateAccountBar(); updateSubBanner();
   showToast(message || 'Berhasil keluar', message ? 'info' : 'success');
 }
@@ -702,12 +680,13 @@ async function performLogout(message){
 function logout(){
   if(!currentUser) return;
   const hasCart = Object.keys(cart).length > 0;
-  const msg = 'Keluar dari akun?\n\nData nama dan email di tab ini akan dihapus.' + (hasCart ? '\nIsi keranjang juga akan dikosongkan.' : '');
+  const msg = 'Keluar dari akun?\n\nData nama di tab ini akan dihapus.' + (hasCart ? '\nIsi keranjang juga akan dikosongkan.' : '');
   if(confirm(msg)) performLogout();
 }
 
 function openCart(){
   stopHistoryListener();
+  awaitingLink = false;
   renderCart();
   $('drawer').classList.remove('translate-x-full');
   $('overlay').classList.remove('opacity-0', 'pointer-events-none');
@@ -721,8 +700,8 @@ function closeCart(){
 /* ====== EVENT DELEGATION (pengganti onclick inline, kompatibel dengan CSP) ====== */
 const ACTIONS = {
   openHistory, openCart, closeCart, logout, checkout, renderCart,
-  renderLoginStep, sendOtpStep, verifyOtpStep, useCurrentLocation,
-  renderCustomerStep, submitCustomer, verifyEmailStep, resendEmailOtp,
+  renderLoginStep, sendLoginLink, resendLoginLink,
+  useCurrentLocation, renderCustomerStep, submitCustomer,
   confirmOrder, finishOrder, goToHistory,
   setCat: (d) => setCat(d.cat),
   addItem: (d) => addItem(Number(d.id)),
@@ -734,8 +713,12 @@ document.addEventListener('click', (e) => {
   const fn = ACTIONS[el.dataset.action];
   if(typeof fn === 'function') fn(el.dataset);
 });
+document.addEventListener('keydown', (e) => {
+  if(e.key === 'Enter' && e.target.id === 'loginEmail') sendLoginLink();
+});
 $('search').addEventListener('input', render);
 
 /* ====== MULAI ====== */
 purgeLegacyLocalData();
 renderTabs(); updateSubBanner(); render(); renderCart();
+completeEmailLinkSignIn();
