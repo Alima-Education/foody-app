@@ -1,27 +1,19 @@
-// firebase-config.js
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import { getFirestore } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
-import { getAuth } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
-import {
-	SECRET_APIKEY,
-	SECRET_AUTHDOMAIN,
-	SECRET_PROJECTID,
-	SECRET_STORAGEBUCKET,
-	SECRET_MESSEGINGSENDERID,
-	SECRET_APPID,
-	SECRET_MEASUREMENTID,
-} from '../secret.js';
+import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-check.js';
+import { initializeFirestore } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import { initializeAuth, indexedDBLocalPersistence, browserLocalPersistence }
+  from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import { FIREBASE_PUBLIC_CONFIG, APPCHECK_SITE_KEY } from './public-config.js';
 
-const firebaseConfig = {
-	apiKey: SECRET_APIKEY,
-	authDomain: SECRET_AUTHDOMAIN,
-	projectId: SECRET_PROJECTID,
-	storageBucket: SECRET_STORAGEBUCKET,
-	messagingSenderId: SECRET_MESSEGINGSENDERID,
-	appId: SECRET_APPID,
-	measurementId: SECRET_MEASUREMENTID,
-};
+const app = initializeApp(FIREBASE_PUBLIC_CONFIG);
 
-const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
-export const auth = getAuth(app);
+if(APPCHECK_SITE_KEY){
+  if(['localhost', '127.0.0.1'].includes(location.hostname)){
+    self.FIREBASE_APPCHECK_DEBUG_TOKEN = true; // token debug muncul di Console, daftarkan di Firebase
+  }
+  initializeAppCheck(app, { provider: new ReCaptchaV3Provider(APPCHECK_SITE_KEY), isTokenAutoRefreshEnabled: true });
+}
+
+export const db = initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
+// tanpa popup/redirect resolver: tidak memuat iframe/skrip OAuth yang tidak dipakai
+export const auth = initializeAuth(app, { persistence: [indexedDBLocalPersistence, browserLocalPersistence] });

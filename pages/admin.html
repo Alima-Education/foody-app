@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'none';
+  script-src 'self' https://www.gstatic.com https://www.google.com;
+  style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://www.gstatic.com;
+  font-src https://fonts.gstatic.com;
+  img-src 'self' data: https://www.gstatic.com https://www.google.com;
+  connect-src 'self' https://*.googleapis.com;
+  frame-src https://www.google.com https://recaptcha.google.com;
+  object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FOODY ADMIN</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/tailwind.css">
+</head>
+<body class="bg-ivory text-ink font-sans relative">
+
+<div class="fixed inset-0 -z-10 overflow-hidden pointer-events-none">
+  <div class="absolute -top-24 -left-20 w-80 h-80 rounded-full bg-chili/25 blur-[100px]"></div>
+  <div class="absolute -bottom-24 -right-16 w-96 h-96 rounded-full bg-herb/20 blur-[110px]"></div>
+</div>
+
+<section id="loginView" class="hidden">
+  <div class="min-h-screen flex items-center justify-center px-4">
+    <div class="w-full max-w-sm bg-card border border-line rounded-2xl p-6">
+      <h1 class="font-serif text-2xl text-chili">FOODY ADMIN</h1>
+      <p class="text-sm text-inksoft mt-1 mb-5">Masuk untuk mengelola pesanan.</p>
+
+      <label class="text-sm font-semibold" for="loginEmail">Email</label>
+      <input id="loginEmail" type="email" autocomplete="username"
+        class="w-full border border-line bg-surface text-ink rounded-lg px-3 py-2.5 mt-1.5 text-sm outline-none focus:border-herb">
+
+      <label class="text-sm font-semibold mt-4 block" for="loginPass">Password</label>
+      <input id="loginPass" type="password" autocomplete="current-password"
+        class="w-full border border-line bg-surface text-ink rounded-lg px-3 py-2.5 mt-1.5 text-sm outline-none focus:border-herb">
+
+      <p id="loginError" class="text-xs text-chilidark mt-3 min-h-[1rem]"></p>
+      <button id="loginBtn" class="w-full bg-chili text-white font-bold rounded-full py-3 text-sm mt-3">Masuk</button>
+    </div>
+  </div>
+</section>
+
+<section id="panelView" class="hidden">
+  <header class="sticky top-0 z-20 bg-ivory/85 backdrop-blur-md border-b border-line">
+    <div class="flex items-center justify-between px-4 pt-3 pb-2 max-w-4xl mx-auto">
+      <div>
+        <h1 class="font-serif text-xl text-chili leading-none">FOODY ADMIN</h1>
+        <span id="countText" class="text-[11px] text-inksoft">0 pesanan</span>
+      </div>
+      <button id="logoutBtn" class="bg-surface text-ink border border-line text-sm font-semibold rounded-full px-4 py-2.5">Keluar</button>
+    </div>
+    <div class="px-4 pb-3 max-w-4xl mx-auto">
+      <input id="search" placeholder="Cari kode, nama, email, HP, alamat..."
+        class="w-full rounded-full border border-line bg-card text-ink placeholder:text-inksoft/70 px-4 py-2.5 text-sm outline-none focus:border-herb">
+    </div>
+    <div id="tabs" class="flex gap-2 px-4 pb-3 max-w-4xl mx-auto overflow-x-auto"></div>
+  </header>
+
+  <main class="max-w-4xl mx-auto px-4 pb-16">
+    <div id="stats" class="grid grid-cols-3 gap-3 py-4"></div>
+    <div id="list" class="grid grid-cols-1 md:grid-cols-2 gap-3"></div>
+  </main>
+</section>
+
+<div id="toast" role="status" aria-live="polite"
+  class="fixed left-1/2 top-4 mt-safe -translate-x-1/2 -translate-y-24 opacity-0 z-[100] w-[92%] max-w-sm pointer-events-none transition-all duration-300">
+  <div id="toastInner" class="flex items-start gap-3 rounded-2xl border px-4 py-3 shadow-2xl text-sm font-semibold">
+    <span id="toastIcon" class="text-base leading-none mt-0.5"></span>
+    <span id="toastText"></span>
+  </div>
+</div>
+
+<script type="module" src="../script/admin.js"></script>
+</body>
+</html>

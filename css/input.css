@@ -1,0 +1,13 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body   { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+  header { padding-top: env(safe-area-inset-top, 0px); }
+  ::-webkit-scrollbar { display: none; }
+}
+@layer utilities {
+  .pt-safe { padding-top: env(safe-area-inset-top, 0px); }
+  .mt-safe { margin-top: env(safe-area-inset-top, 0px); }
+}

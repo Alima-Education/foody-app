@@ -2,24 +2,20 @@
 <html lang="id">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'none';
+  script-src 'self' https://www.gstatic.com https://www.google.com;
+  style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://www.gstatic.com;
+  font-src https://fonts.gstatic.com;
+  img-src 'self' data: https://www.gstatic.com https://www.google.com;
+  connect-src 'self' https://*.googleapis.com https://smtp.abiyyucakra.my.id;
+  frame-src https://www.google.com https://recaptcha.google.com;
+  object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>FOODY APP</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<script src="https://cdn.tailwindcss.com"></script>
-<script>
-tailwind.config = {
-  theme: { extend: {
-    colors: { ivory:'#131022', card:'#1c1830', surface:'#241f3d', ink:'#f5f2ff', inksoft:'#b3a8d6', chili:'#ff3d81', chilidark:'#ff6fa3', herb:'#37e6c9', line:'rgba(255,255,255,0.09)' },
-    fontFamily: { serif:['Fraunces','serif'], sans:['"Plus Jakarta Sans"','sans-serif'] }
-  }}
-}
-</script>
-<style>
-  body{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
-  header{padding-top:env(safe-area-inset-top,0px)}
-  ::-webkit-scrollbar{display:none}
-</style>
+<link rel="stylesheet" href="../css/tailwind.css">
 </head>
 <body class="bg-ivory text-ink font-sans relative">
 
@@ -32,15 +28,26 @@ tailwind.config = {
   <div class="flex items-center justify-between px-4 pt-3 pb-2 max-w-2xl mx-auto">
     <div>
       <h1 class="font-serif text-xl text-chili leading-none">FOODY APP</h1>
-      <span class="text-[11px] text-inksoft">Lunch & dessert harian</span>
+      <span class="text-[16px] text-inksoft">Lunch & dessert harian</span>
     </div>
-    <button onclick="openCart()" class="relative flex items-center gap-1.5 bg-surface text-ink border border-line text-sm font-semibold rounded-full px-4 py-2.5">
-      Keranjang
-      <span id="cartCount" class="bg-chili text-white rounded-full text-xs px-2 py-0.5">0</span>
-    </button>
+    <div class="flex items-center gap-2">
+      <button data-action="openHistory" class="flex items-center gap-1.5 bg-surface text-ink border border-line text-sm font-semibold rounded-full px-4 py-2.5">Riwayat</button>
+      <button data-action="openCart" class="relative flex items-center gap-1.5 bg-surface text-ink border border-line text-sm font-semibold rounded-full px-4 py-2.5">
+        Keranjang
+        <span id="cartCount" class="bg-chili text-white rounded-full text-xs px-2 py-0.5">0</span>
+      </button>
+    </div>
   </div>
+
+  <div id="accountBar" class="hidden px-4 pb-2 max-w-2xl mx-auto">
+    <div class="flex items-center justify-between gap-3 rounded-full border border-line bg-card px-4 py-1.5">
+      <span id="accountText" class="text-xs text-inksoft truncate"></span>
+      <button data-action="logout" class="flex-none text-xs font-semibold text-chilidark">Keluar</button>
+    </div>
+  </div>
+
   <div class="px-4 pb-3 max-w-2xl mx-auto">
-    <input id="search" placeholder="Cari menu, misal: ricebowl, es teh..." oninput="render()"
+    <input id="search" placeholder="Cari menu, misal: ricebowl, es teh..."
       class="w-full rounded-full border border-line bg-card text-ink placeholder:text-inksoft/70 px-4 py-2.5 text-sm outline-none focus:border-herb">
   </div>
   <div id="tabs" class="flex gap-2 px-4 pb-3 max-w-2xl mx-auto overflow-x-auto"></div>
@@ -49,17 +56,15 @@ tailwind.config = {
 <main class="max-w-2xl mx-auto px-4">
   <section class="pt-6 pb-3">
     <h2 class="font-serif text-3xl sm:text-4xl leading-tight max-w-xs">Makan siang enak, tanpa ribet mikir menu.</h2>
-    <p class="text-inksoft text-sm mt-2 max-w-sm">Pilih menu hari ini atau langganan biar makan siangmu otomatis terjadwal setiap minggu.</p>
+    <p class="text-inksoft text-sm mt-2 max-w-sm">Pilih menu hari ini, pesan, lalu pantau statusnya dari menu Riwayat.</p>
   </section>
 
   <div class="bg-herb text-[#0d2420] rounded-2xl px-5 py-4 my-4 flex items-center justify-between gap-4">
     <div>
       <h3 class="font-serif text-base">Langganan mingguan</h3>
-      <p class="text-xs opacity-80 mt-0.5">Diskon 10% untuk semua menu lunch</p>
+      <p id="subDesc" class="text-sm opacity-80 mt-0.5"></p>
     </div>
-    <button id="subToggle" onclick="toggleSub()" class="relative w-[50px] h-7 rounded-full bg-black/15 flex-none transition-colors">
-      <span id="subDot" class="absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full transition-transform"></span>
-    </button>
+    <span id="subBadge" class="flex-none rounded-full px-3 py-1 text-xs font-bold"></span>
   </div>
 
   <div id="menuArea"></div>
@@ -67,275 +72,25 @@ tailwind.config = {
 
 <footer class="text-center text-inksoft text-xs px-5 py-10">FOODY APP — dibuat untuk katering lunch & dessert harian.</footer>
 
-<div id="overlay" onclick="closeCart()" class="fixed inset-0 bg-black/40 z-30 opacity-0 pointer-events-none transition-opacity"></div>
-<div id="drawer" class="fixed top-0 right-0 h-full w-full sm:w-[380px] bg-ivory z-40 translate-x-full transition-transform flex flex-col" style="padding-top:env(safe-area-inset-top,0px)">
+<div id="overlay" data-action="closeCart" class="fixed inset-0 bg-black/40 z-30 opacity-0 pointer-events-none transition-opacity"></div>
+<div id="drawer" class="fixed top-0 right-0 h-full w-full sm:w-[380px] bg-ivory z-40 translate-x-full transition-transform flex flex-col pt-safe">
   <div class="flex items-center justify-between px-5 py-4 border-b border-line">
     <h3 id="drawerTitle" class="font-serif text-lg">Keranjang</h3>
-    <button onclick="closeCart()" class="text-xl text-inksoft">✕</button>
+    <button data-action="closeCart" class="text-xl text-inksoft" aria-label="Tutup">✕</button>
   </div>
   <div id="cartBody" class="flex-1 overflow-y-auto px-5 py-3"></div>
   <div id="cartFoot" class="px-5 py-4 border-t border-line"></div>
 </div>
-<div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-surface text-ink border border-line text-sm px-5 py-3 rounded-full z-50 opacity-0 translate-y-4 transition-all"></div>
+
+<div id="toast" role="status" aria-live="polite"
+  class="fixed left-1/2 top-4 mt-safe -translate-x-1/2 -translate-y-24 opacity-0 z-[100] w-[92%] max-w-sm pointer-events-none transition-all duration-300">
+  <div id="toastInner" class="flex items-start gap-3 rounded-2xl border px-4 py-3 shadow-2xl text-sm font-semibold">
+    <span id="toastIcon" class="text-base leading-none mt-0.5"></span>
+    <span id="toastText"></span>
+  </div>
+</div>
 <div id="recaptcha-container"></div>
 
-<script type="module">
-import { auth } from "../script/firebase-config.js";
-import {
-  getAuth, RecaptchaVerifier, signInWithPhoneNumber, onAuthStateChanged
-} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-import { MENU, CATS, money } from '../constant/food.js';
-
-let confirmationResult = null;
-let currentUser = null;
-
-onAuthStateChanged(auth, (user) => { currentUser = user; });
-
-/* ====== STATE HALAMAN (bukan import → boleh diubah-ubah) ====== */
-let cart = {}, activeCat = 'all', subscribed = false;
-let pendingPhone = '';
-let chosenAddress = '';
-let chosenKurir = null;
-
-const KURIR = [
-  {name:'Budi Santoso', kend:'Harley Davidson', plat:'B 3421 AXQ'},
-  {name:'Andi Firmansyah', kend:'Mclaren senna', plat:'B 87 CVR'},
-  {name:'Sari Wulandari', kend:'Bmw m4', plat:'B 550 DZK'},
-];
-
-document.getElementById('tabs').innerHTML = CATS.map(([k,l]) =>
-  `<button data-cat="${k}" onclick="setCat('${k}')"
-     class="tab flex-none rounded-full border text-sm font-semibold px-4 py-1.5 ${k===activeCat?'bg-chili text-white border-chili':'bg-card text-inksoft border-line'}">${l}</button>`).join('');
-
-function setCat(c){
-  activeCat = c;
-  document.querySelectorAll('.tab').forEach(t=>{
-    const on = t.dataset.cat===c;
-    t.className = `tab flex-none rounded-full border text-sm font-semibold px-4 py-1.5 ${on?'bg-chili text-white border-chili':'bg-card text-inksoft border-line'}`;
-  });
-  render();
-}
-
-function toggleSub(){
-  subscribed = !subscribed;
-  document.getElementById('subToggle').classList.toggle('bg-herb', subscribed);
-  document.getElementById('subToggle').classList.toggle('bg-white/30', !subscribed);
-  document.getElementById('subDot').style.transform = subscribed ? 'translateX(22px)' : 'translateX(0)';
-  showToast(subscribed ? 'Langganan aktif — diskon 10% di menu lunch' : 'Langganan dinonaktifkan');
-  render(); renderCart();
-}
-
-function render(){
-  const q = document.getElementById('search').value.toLowerCase();
-  const filtered = MENU.filter(m => (activeCat==='all'||m.cat===activeCat) && m.name.toLowerCase().includes(q));
-  const groups = {lunch:'Menu Lunch', dessert:'Dessert', drink:'Minuman'};
-  let html = '';
-  Object.keys(groups).forEach(cat=>{
-    const items = filtered.filter(m=>m.cat===cat);
-    if(!items.length) return;
-    html += `<div class="flex items-center gap-3 text-base font-serif mt-6 mb-3">${groups[cat]}<span class="flex-1 h-px bg-line"></span></div>
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">`;
-    items.forEach(m=>{
-      const price = (subscribed && cat==='lunch') ? Math.round(m.price*0.9) : m.price;
-      const qty = cart[m.id]||0;
-      html += `<div class="bg-card border border-line rounded-2xl p-4 flex flex-col gap-1">
-        <h4 class="font-semibold text-sm">${m.name}</h4>
-        <p class="text-xs text-inksoft">${m.desc}</p>
-        <div class="flex items-center justify-between mt-2">
-          <div class="font-bold text-chilidark text-sm">${subscribed && cat==='lunch' ? `<s class="text-inksoft font-normal text-xs mr-1">${money(m.price)}</s>${money(price)}` : money(price)}</div>
-          ${qty===0
-            ? `<button onclick="addItem(${m.id})" class="w-9 h-9 rounded-full bg-chili text-white text-lg leading-none">+</button>`
-            : `<div class="flex items-center gap-2.5">
-                 <button onclick="changeQty(${m.id},-1)" class="w-7 h-7 rounded-full border border-line bg-surface text-ink">–</button>
-                 <span class="text-sm w-4 text-center">${qty}</span>
-                 <button onclick="changeQty(${m.id},1)" class="w-7 h-7 rounded-full border border-line bg-surface text-ink">+</button>
-               </div>`}
-        </div></div>`;
-    });
-    html += `</div>`;
-  });
-  document.getElementById('menuArea').innerHTML = html || `<p class="text-center text-inksoft py-10 text-sm">Menu tidak ditemukan.</p>`;
-}
-
-function updateBadge(){ document.getElementById('cartCount').textContent = Object.values(cart).reduce((a,b)=>a+b,0); }
-function addItem(id){ cart[id]=1; render(); renderCart(); updateBadge(); showToast('Ditambahkan ke keranjang'); }
-function changeQty(id,d){ cart[id]=(cart[id]||0)+d; if(cart[id]<=0) delete cart[id]; render(); renderCart(); updateBadge(); }
-
-function cartTotal(){
-  let total=0;
-  Object.entries(cart).forEach(([id,qty])=>{
-    const m = MENU.find(x=>x.id==id);
-    const price = (subscribed && m.cat==='lunch') ? Math.round(m.price*0.9) : m.price;
-    total += price*qty;
-  });
-  return total;
-}
-
-function renderCart(){
-  document.getElementById('drawerTitle').textContent = 'Keranjang';
-  const entries = Object.entries(cart);
-  const body = document.getElementById('cartBody');
-  body.innerHTML = entries.length ? entries.map(([id,qty])=>{
-    const m = MENU.find(x=>x.id==id);
-    const price = (subscribed && m.cat==='lunch') ? Math.round(m.price*0.9) : m.price;
-    return `<div class="flex justify-between gap-3 py-2.5 border-b border-line">
-      <div><div class="font-semibold text-sm">${m.name}</div><div class="text-xs text-inksoft">${qty} x ${money(price)}</div></div>
-      <div class="font-semibold text-sm">${money(price*qty)}</div></div>`;
-  }).join('') : `<div class="text-center text-inksoft text-sm py-16">Keranjang masih kosong.<br>Pilih menu untuk mulai memesan.</div>`;
-
-  const total = cartTotal();
-  const ongkir = entries.length ? 5000 : 0;
-  document.getElementById('cartFoot').innerHTML = entries.length ? `
-    <div class="flex justify-between text-sm mb-1.5"><span>Subtotal</span><span>${money(total)}</span></div>
-    <div class="flex justify-between text-sm mb-1.5"><span>Ongkir</span><span>${money(ongkir)}</span></div>
-    <div class="flex justify-between font-bold text-base mt-2 mb-3"><span>Total</span><span>${money(total+ongkir)}</span></div>
-    <select id="payMethod" class="w-full border border-line bg-card text-ink rounded-lg px-3 py-2.5 mb-3 text-sm">
-      <option value="">Pilih metode pembayaran</option>
-      <option value="qris">QRIS</option>
-      <option value="transfer">Transfer Bank</option>
-      <option value="cod">Bayar di Tempat (COD)</option>
-    </select>
-    <button onclick="checkout()" class="w-full bg-chili text-white font-bold rounded-full py-3 text-sm">Bayar Sekarang</button>
-  ` : '';
-}
-
-function checkout(){
-  const method = document.getElementById('payMethod').value;
-  if(!method){ showToast('Pilih metode pembayaran dulu'); return; }
-  window._payMethod = method;
-  if(currentUser){ renderLocationStep(); } else { renderLoginStep(); }
-}
-
-function renderLoginStep(){
-  document.getElementById('drawerTitle').textContent = 'Masuk untuk lanjut';
-  document.getElementById('cartBody').innerHTML = `
-    <p class="text-sm text-inksoft mb-4">Masukkan nomor HP kamu, kami akan kirim kode OTP untuk verifikasi sebelum pesanan diproses.</p>
-    <label class="text-sm font-semibold">Nomor HP</label>
-    <input id="phoneInput" type="tel" placeholder="08123456789"
-      class="w-full border border-line bg-card text-ink placeholder:text-inksoft/70 rounded-lg px-3 py-2.5 mt-1.5 text-sm">
-    <p class="text-xs text-inksoft mt-1.5">Format otomatis dikonversi ke +62.</p>`;
-  document.getElementById('cartFoot').innerHTML = `
-    <button onclick="sendOtpStep()" class="w-full bg-chili text-white font-bold rounded-full py-3 text-sm">Kirim Kode OTP</button>`;
-}
-
-function normalizePhone(input){
-  const digits = input.replace(/[^\d+]/g, '');
-  if(digits.startsWith('+62')) return digits;
-  if(digits.startsWith('62')) return '+' + digits;
-  if(digits.startsWith('0')) return '+62' + digits.slice(1);
-  return '+62' + digits;
-}
-
-async function sendOtpStep(){
-  let phone = document.getElementById('phoneInput').value.trim();
-  if(!phone){ showToast('Isi nomor HP dulu'); return; }
-  phone = normalizePhone(phone);
-  pendingPhone = phone;
-  try{
-    document.getElementById('cartFoot').innerHTML = `<button disabled class="w-full bg-chili/50 text-white font-bold rounded-full py-3 text-sm">Mengirim kode...</button>`;
-    resetRecaptcha();
-    window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', { size: 'invisible' });
-    confirmationResult = await signInWithPhoneNumber(auth, phone, window.recaptchaVerifier);
-    renderOtpInputStep();
-  }catch(err){
-    console.error('KODE ERROR:', err.code, err.message);
-    showToast('Gagal kirim OTP: ' + err.code);
-    renderLoginStep();
-  }
-}
-
-function renderOtpInputStep(){
-  document.getElementById('drawerTitle').textContent = 'Masukkan kode OTP';
-  document.getElementById('cartBody').innerHTML = `
-    <p class="text-sm text-inksoft mb-4">Kode OTP sudah dikirim ke <span class="text-ink font-semibold">${pendingPhone}</span>.</p>
-    <label class="text-sm font-semibold">Kode OTP</label>
-    <input id="otpInput" type="text" inputmode="numeric" placeholder="123456"
-      class="w-full border border-line bg-card text-ink placeholder:text-inksoft/70 rounded-lg px-3 py-2.5 mt-1.5 text-sm tracking-widest">
-    <button onclick="renderLoginStep()" class="mt-2 text-xs font-semibold text-herb underline">Ganti nomor HP</button>`;
-  document.getElementById('cartFoot').innerHTML = `
-    <button onclick="verifyOtpStep()" class="w-full bg-chili text-white font-bold rounded-full py-3 text-sm">Verifikasi & Lanjutkan</button>`;
-}
-
-async function verifyOtpStep(){
-  const code = document.getElementById('otpInput').value.trim();
-  if(!code){ showToast('Isi kode OTP dulu'); return; }
-  try{
-    const result = await confirmationResult.confirm(code);
-    currentUser = result.user;
-    showToast('Berhasil masuk!');
-    renderLocationStep();
-  }catch(err){
-    showToast('Kode OTP salah, coba lagi');
-  }
-}
-
-function useCurrentLocation(){
-  if(!navigator.geolocation){ showToast('Perangkat tidak mendukung lokasi'); return; }
-  navigator.geolocation.getCurrentPosition(
-    pos => { document.getElementById('addrInput').value = `Lokasi saat ini (${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)})`; },
-    () => showToast('Izin lokasi ditolak, isi alamat manual ya')
-  );
-}
-
-function renderLocationStep(){
-  document.getElementById('drawerTitle').textContent = 'Lokasi & Pengantar';
-  chosenKurir = KURIR[Math.floor(Math.random()*KURIR.length)];
-  const eta = 15 + Math.floor(Math.random()*15);
-  document.getElementById('cartBody').innerHTML = `
-    <div class="mb-4">
-      <label class="text-sm font-semibold">Alamat pengantaran</label>
-      <textarea id="addrInput" rows="3" placeholder="Nama jalan, nomor rumah, patokan..."
-        class="w-full border border-line bg-card text-ink placeholder:text-inksoft/70 rounded-lg px-3 py-2.5 mt-1.5 text-sm resize-none"></textarea>
-      <button onclick="useCurrentLocation()" class="mt-2 text-xs font-semibold text-herb underline">Gunakan lokasi saat ini</button>
-    </div>
-    <div class="bg-card border border-line rounded-2xl p-4">
-      <div class="text-xs text-inksoft mb-1">Kurir yang ditugaskan</div>
-      <div class="font-semibold text-sm">${chosenKurir.name}</div>
-      <div class="text-xs text-inksoft mt-0.5">${chosenKurir.kend} · ${chosenKurir.plat}</div>
-      <div class="text-xs text-inksoft mt-2">Estimasi tiba dalam ${eta} menit setelah pesanan diproses</div>
-    </div>`;
-  document.getElementById('cartFoot').innerHTML = `
-    <div class="flex gap-3">
-      <button onclick="renderCart()" class="flex-1 border border-line rounded-full py-3 text-sm font-semibold">Kembali</button>
-      <button onclick="confirmOrder()" class="flex-1 bg-chili text-white font-bold rounded-full py-3 text-sm">Konfirmasi Pesanan</button>
-    </div>`;
-}
-
-function confirmOrder(){
-  const addr = document.getElementById('addrInput').value.trim();
-  if(!addr){ showToast('Isi alamat pengantaran dulu'); return; }
-  chosenAddress = addr;
-  document.getElementById('drawerTitle').textContent = 'Pesanan Selesai';
-  document.getElementById('cartBody').innerHTML = `
-    <div class="text-center py-10">
-      <div class="text-3xl mb-2">🎉</div>
-      <h4 class="font-serif text-lg">Pesanan dikonfirmasi!</h4>
-      <p class="text-sm text-inksoft mt-2">Dikirim ke: ${chosenAddress}</p>
-      <p class="text-sm text-inksoft mt-1">Kurir: ${chosenKurir.name} (${chosenKurir.kend})</p>
-    </div>`;
-  document.getElementById('cartFoot').innerHTML = `<button onclick="finishOrder()" class="w-full bg-herb text-[#0d2420] font-bold rounded-full py-3 text-sm">Selesai</button>`;
-}
-function finishOrder(){
-  closeCart();
-  cart = {};
-  render(); renderCart(); updateBadge();
-}
-function openCart(){ renderCart(); document.getElementById('drawer').classList.remove('translate-x-full'); document.getElementById('overlay').classList.remove('opacity-0','pointer-events-none'); }
-function closeCart(){ document.getElementById('drawer').classList.add('translate-x-full'); document.getElementById('overlay').classList.add('opacity-0','pointer-events-none'); }
-function showToast(msg){
-  const t = document.getElementById('toast'); t.textContent = msg;
-  t.classList.remove('opacity-0','translate-y-4');
-  clearTimeout(window._tt); window._tt = setTimeout(()=>t.classList.add('opacity-0','translate-y-4'),2200);
-}
-
-/* ====== Ekspos semua fungsi yang dipanggil lewat onclick="" ke window ====== */
-Object.assign(window, {
-  setCat, toggleSub, render, addItem, changeQty, checkout,
-  renderLoginStep, sendOtpStep, verifyOtpStep, useCurrentLocation,
-  renderCart, confirmOrder, finishOrder, openCart, closeCart
-});
-
-render(); renderCart();
-</script>
+<script type="module" src="../script/app.js"></script>
 </body>
 </html>

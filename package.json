@@ -1,0 +1,23 @@
+{
+  "name": "foody_app",
+  "version": "1.0.0",
+  "main": "secret.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Alima-Education/foody-app.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Alima-Education/foody-app/issues"
+  },
+  "homepage": "https://github.com/Alima-Education/foody-app#readme",
+  "description": "",
+  "devDependencies": {
+    "tailwindcss": "^3.4.19"
+  }
+}
