@@ -30,3 +30,45 @@ jobs:
             -d "$PAYLOAD" \
             "$DISCORD_WEBHOOK" \
             --fail-with-body
+
+
+name: Discord Notification
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send Discord Notification
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          REPOSITORY: ${{ github.repository }}
+          COMMIT: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+
+        run: |
+          # Pastikan webhook tersedia
+          if [ -z "$DISCORD_WEBHOOK" ]; then
+            echo "ERROR: DISCORD_WEBHOOK belum diatur!"
+            exit 1
+          fi
+
+          # Membuat pesan JSON
+          PAYLOAD=$(jq -n \
+            --arg repo "$REPOSITORY" \
+            --arg commit "$COMMIT" \
+            --arg actor "$ACTOR" \
+            '{
+              content: ("🚀 Update GitHub berhasil!\nRepository: " + $repo + "\nPengirim: " + $actor + "\nCommit: " + $commit)
+            }')
+
+          # Mengirim pesan ke Discord
+          curl --fail-with-body -sS -X POST \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            "$DISCORD_WEBHOOK"
