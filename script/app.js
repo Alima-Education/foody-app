@@ -166,7 +166,7 @@ function setCat(c){ activeCat = c; renderTabs(); render(); }
 function updateSubBanner(){
   $('subDesc').textContent = subscribed
     ? 'Langganan aktif: diskon 10% untuk semua menu lunch.'
-    : 'Diskon 10% untuk menu lunch. Hubungi admin untuk mengaktifkan langganan.';
+    : 'Diskon 10% untuk menu lunch. Aktif otomatis setelah pesanan pertamamu.';
   $('subBadge').textContent = subscribed ? 'Aktif' : 'Belum aktif';
   $('subBadge').className = 'flex-none rounded-full px-3 py-1 text-xs font-bold ' +
     (subscribed ? 'bg-[#0d2420] text-herb' : 'bg-black/15 text-[#0d2420]');
@@ -503,12 +503,37 @@ async function confirmOrder(){
   const oldErr = $('sendError');
   if(oldErr) oldErr.remove();
 
-  let ok = false, lastErr = null;
-  try{
+  const commitOrder = async (withWelcome) => {
     const batch = writeBatch(db);
     batch.set(ref, data);
     batch.set(doc(db, 'rate', currentUser.uid), { at: serverTimestamp() }); // pembatas 1 pesanan/60 detik
+    if(withWelcome){
+      // pesanan pertama → langganan otomatis aktif (sekali saja)
+      batch.set(doc(db, 'welcome', currentUser.uid), { at: serverTimestamp(), firstOrder: ref.id });
+      batch.set(doc(db, 'subscribers', currentUser.uid), { since: serverTimestamp(), by: currentUser.uid, auto: true });
+    }
     await withTimeout(batch.commit(), SEND_TIMEOUT_MS);
+  };
+
+  let ok = false, lastErr = null;
+  try{
+    let withWelcome = false;
+    if(!subscribed){
+      try{
+        const w = await withTimeout(getDoc(doc(db, 'welcome', currentUser.uid)), 6000);
+        withWelcome = !w.exists(); // belum pernah mendapat langganan otomatis
+      }catch(e){ withWelcome = false; }
+    }
+    try{
+      await commitOrder(withWelcome);
+    }catch(err){
+      if(withWelcome && err.code === 'permission-denied'){
+        console.warn('Langganan otomatis ditolak Rules, pesanan dikirim tanpa langganan:', err.message);
+        await commitOrder(false);
+      }else{
+        throw err;
+      }
+    }
     ok = true;
   }catch(err){
     lastErr = err;
@@ -526,13 +551,22 @@ async function confirmOrder(){
     showToast('Pesanan belum terkirim, coba lagi', 'error');
     return;
   }
-  showOrderSuccess({ code, calc, address: addr, name: customer.name });
-}
 
+  // baca status langganan dari server, jangan menebak
+  const wasSubscribed = subscribed;
+  await refreshSubscription();
+  showOrderSuccess({ code, calc, address: addr, name: customer.name, activated: !wasSubscribed && subscribed });
+}
 function showOrderSuccess(o){
   orderAttempt = null;
   cart = {}; // kosongkan sekarang, supaya tidak terpesan ulang
   render(); updateBadge();
+
+  const activatedBox = o.activated ? `
+    <div class="mt-4 rounded-2xl border border-herb bg-card p-4 text-sm">
+      <div class="font-semibold text-herb">Langganan mingguan aktif!</div>
+      <div class="text-inksoft mt-1">Pesanan berikutnya otomatis dapat diskon 10% untuk menu lunch.</div>
+    </div>` : '';
 
   $('drawerTitle').textContent = 'Pesanan Berhasil';
   $('cartBody').innerHTML = `
@@ -547,11 +581,14 @@ function showOrderSuccess(o){
       <div class="flex justify-between mt-2"><span class="text-inksoft">Atas nama</span><span>${esc(o.name)}</span></div>
       <div class="mt-2 text-inksoft">Dikirim ke</div>
       <div class="break-words">${esc(o.address)}</div>
-    </div>`;
+    </div>
+    ${activatedBox}`;
   $('cartFoot').innerHTML = `
     <button data-action="goToHistory" class="w-full border border-line rounded-full py-3 text-sm font-semibold mb-2">Lihat Riwayat</button>
     <button data-action="finishOrder" class="w-full bg-herb text-[#0d2420] font-bold rounded-full py-3 text-sm">Selesai</button>`;
-  showToast('Pesanan berhasil dikirim! Kode ' + o.code, 'success');
+  showToast(o.activated
+    ? 'Pesanan terkirim dan langganan aktif! Diskon 10% mulai pesanan berikutnya.'
+    : 'Pesanan berhasil dikirim! Kode ' + o.code, 'success');
   playSuccessSound();
 }
 
