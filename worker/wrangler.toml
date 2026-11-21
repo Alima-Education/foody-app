@@ -1,0 +1,12 @@
+name = "foody-notify"
+main = "index.js"
+compatibility_date = "2025-01-01"
+
+[vars]
+FIREBASE_PROJECT_ID = "foody-app-def8b"
+ALLOWED_ORIGINS = "http://127.0.0.1:5500/pages/index.html"
+ADMIN_URL = "http://127.0.0.1:5500/pages/admin.html"
+
+[[kv_namespaces]]
+binding = "NOTIFIED"
+id = "e205eeb4c41242c09049c8baf9ae059f"

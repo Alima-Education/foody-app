@@ -5,6 +5,7 @@ import { collection, doc, getDoc, getDocFromServer, onSnapshot, query, where, se
   from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 import { MENU, CATS, money } from '../constant/food.js';
 import { unitPrice, calcOrder, ONGKIR } from '../constant/pricing.js';
+import { notifyAdmin } from './notify.js';
 
 /* ====== UTIL ====== */
 const $ = (id) => document.getElementById(id);
@@ -552,6 +553,7 @@ async function confirmOrder(){
     return;
   }
 
+  notifyAdmin(ref.id);
   // baca status langganan dari server, jangan menebak
   const wasSubscribed = subscribed;
   await refreshSubscription();
